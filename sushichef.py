@@ -4,13 +4,22 @@ import json
 from bs4 import BeautifulSoup
 from ricecooker.utils import downloader
 from ricecooker.chefs import SushiChef
-from ricecooker.classes.files import YouTubeVideoFile
+from ricecooker.classes.files import YouTubeVideoFile, YouTubeSubtitleFile, is_youtube_subtitle_file_supported_language
 from ricecooker.config import LOGGER
 from ricecooker.exceptions import raise_for_invalid_channel
 from ricecooker.classes.nodes import TopicNode, VideoNode, ExerciseNode
 from ricecooker.classes.licenses import CC_BY_NC_SALicense
 from ricecooker.classes.questions import SingleSelectQuestion, MultipleSelectQuestion
 from le_utils.constants import exercises
+
+
+import youtube_dl
+ydl = youtube_dl.YoutubeDL({
+    'quiet': True,
+    'no_warnings': True,
+    'writesubtitles': True,
+    'allsubtitles': True,
+})
 
 
 # Run constants
@@ -68,7 +77,6 @@ class GoogleGarageDigitalChef(SushiChef):
     #     token = json.loads(result)["idToken"]
 
         # Set cookies for the session
-
         self.cookies = {"gtoken": token}
 
     def construct_channel(self, *args, **kwargs):
@@ -123,7 +131,7 @@ class GoogleGarageDigitalChef(SushiChef):
             )
             course_node = TopicNode(
                 source_id="{lang}-{course}".format(lang=CHANNEL_LANGUAGE, course=course["slug"]),
-                title=course["title"],
+                title=course["title"].encode("utf-8").decode("unicode_escape"),
                 thumbnail=course["image"],
             )
             categories[course["category"]].add_child(course_node)
@@ -203,6 +211,21 @@ class GoogleGarageDigitalChef(SushiChef):
                 language=CHANNEL_LANGUAGE,
                 files=[video_file],
             )
+
+            # Add subtitles for the video
+            info = ydl.extract_info(video_id, download=False)
+            subtitle_languages = info["subtitles"].keys()
+            for lang_code in subtitle_languages:
+                if is_youtube_subtitle_file_supported_language(lang_code):
+                    video_node.add_file(
+                        YouTubeSubtitleFile(
+                            youtube_id=video_id,
+                            language=lang_code
+                        )
+                    )
+                else:
+                    LOGGER.info('Unsupported subtitle language code:', lang_code)
+
             lesson.add_child(video_node)
 
     def add_lesson_practice(self, lesson, url, title, course_title, module_title):
@@ -270,7 +293,7 @@ class GoogleGarageDigitalChef(SushiChef):
         all_answers = []
         for choice in question["options"]:
             if choice.get("text"):
-                all_answers.append(choice["text"])
+                all_answers.append(choice["text"].replace("<p>", "").replace("</p>", ""))
             else:
                 all_answers.append("{value} {unit}".format(value=choice["value"], unit=question["unit"]))
 
